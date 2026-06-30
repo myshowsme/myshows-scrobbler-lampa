@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MyShows scrobbler для Lampa</title>
+  <meta name="description" content="MyShows scrobbler плагин для Lampa: отправляет прогресс просмотра в MyShows.">
+  <style>
+    :root {
+      --bg: #0e1116;
+      --card: #161b22;
+      --border: #2a3038;
+      --text: #e6edf3;
+      --muted: #9aa4b2;
+      --accent: #f5a623;
+      --accent-text: #1a1205;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+    h1 { font-size: 1.9rem; margin: 0 0 8px; }
+    .tagline { color: var(--muted); margin: 0 0 32px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin: 0 0 20px;
+    }
+    h2 { font-size: 1.1rem; margin: 0 0 12px; }
+    code, .url {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92rem;
+    }
+    .url-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+    .url {
+      flex: 1 1 320px;
+      background: #0b0e13;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--accent);
+      word-break: break-all;
+      user-select: all;
+    }
+    button {
+      flex: 0 0 auto;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button:active { transform: translateY(1px); }
+    ol { padding-left: 20px; margin: 0; }
+    ol li { margin: 6px 0; }
+    a { color: var(--accent); }
+    .links { color: var(--muted); font-size: 0.9rem; }
+    .links a { margin-right: 16px; }
+    footer { color: var(--muted); font-size: 0.85rem; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MyShows scrobbler для Lampa</h1>
+    <p class="tagline">Тонкий scrobble-only плагин: следит за плеером Lampa и отправляет прогресс просмотра в MyShows.</p>
+
+    <div class="card">
+      <h2>Ссылка для установки</h2>
+      <div class="url-row">
+        <span class="url" id="plugin-url"></span>
+        <button id="copy-btn" type="button">Копировать</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Как установить</h2>
+      <ol>
+        <li>Скопируйте ссылку выше.</li>
+        <li>В Lampa: <strong>Настройки → Расширения → Добавить плагин</strong> — вставьте URL.</li>
+        <li>Откройте настройки плагина «MyShows» и вставьте токен из профиля MyShows — он проверяется автоматически при вводе.</li>
+      </ol>
+    </div>
+
+    <p class="links">
+      <a href="https://github.com/myshowsme/myshows-scrobbler-lampa">Исходный код на GitHub</a>
+      <a href="https://github.com/myshowsme/myshows-scrobbler-lampa/blob/main/README.md">README</a>
+    </p>
+
+    <footer>MyShows scrobbler plugin · загружается через <code>window.Lampa</code></footer>
+  </div>
+
+  <script>
+    (function () {
+      // Build the absolute URL to myshows.js next to this page, so it works
+      // regardless of the repo/user name once hosted on GitHub Pages.
+      var pluginUrl = new URL('myshows.js', window.location.href).href;
+      var urlEl = document.getElementById('plugin-url');
+      urlEl.textContent = pluginUrl;
+
+      var btn = document.getElementById('copy-btn');
+      btn.addEventListener('click', function () {
+        var done = function () {
+          var prev = btn.textContent;
+          btn.textContent = 'Скопировано!';
+          setTimeout(function () { btn.textContent = prev; }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(pluginUrl).then(done, function () {
+            window.prompt('Скопируйте ссылку:', pluginUrl);
+          });
+        } else {
+          window.prompt('Скопируйте ссылку:', pluginUrl);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

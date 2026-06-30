@@ -1,0 +1,27 @@
+{
+  "name": "myshows-scrobbler-lampa",
+  "version": "0.0.1",
+  "description": "MyShows scrobbler plugin for Lampa",
+  "keywords": [
+    "lampa",
+    "myshows",
+    "scrobble"
+  ],
+  "homepage": "https://github.com/myshowsme/myshows-scrobbler-lampa#readme",
+  "bugs": {
+    "url": "https://github.com/myshowsme/myshows-scrobbler-lampa/issues"
+  },
+  "license": "MIT",
+  "author": "MyShows",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myshowsme/myshows-scrobbler-lampa.git"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "terser": "^5.31.0"
+  }
+}
