@@ -1,23 +1,16 @@
 /*!
- * MyShows scrobbler plugin for Lampa
- * --------------------------------------------------------------------------
- * Thin, scrobble-only plugin: watches the Lampa player and reports playback
- * progress to the MyShows scrobble REST API (/start, /pause, /stop, /check)
- * with a Bearer token. All content matching happens on the MyShows backend.
+ * MyShows scrobbler plugin for Lampa.
  *
- * Design: docs/superpowers/specs/2026-06-18-lampa-scrobbler-plugin-design.md
+ * Watches the Lampa player and reports progress to the MyShows scrobble API
+ * (/start, /pause, /stop, /check) with a Bearer token. Content matching is
+ * done on the MyShows side.
  *
- * Module boundaries (single IIFE bundle):
- *   playerAdapter      — ONLY place coupled to Lampa internals
- *   payloadBuilder     — pure: card -> ScrobbleRequest DTO
- *   scrobbleClient     — fetch to the API (start/pause/stop/check)
- *   sessionController  — state machine: dedup, heartbeat, threshold, degraded
- *   settings           — Lampa.SettingsApi UI + Lampa.Storage
- *   bootstrap          — wires everything together
- *
- * NOTE: spots marked "VERIFY ON DEVICE" depend on the running Lampa version's
- * event names / card shape and must be confirmed on a real device. They are
- * deliberately confined to playerAdapter so nothing else needs to change.
+ * Layout (single IIFE):
+ *   playerAdapter     the only part tied to Lampa internals
+ *   payloadBuilder    card -> request DTO
+ *   scrobbleClient    fetch to the API
+ *   sessionController dedup, heartbeat, threshold, degraded mode
+ *   settings          SettingsApi UI + Storage
  */
 ;(function () {
   'use strict'
@@ -48,6 +41,7 @@
     baseUrl: 'myshows_base_url',
     enabled: 'myshows_enabled',
     status: 'myshows_status', // last connection status (for the settings UI)
+    notify: 'myshows_notify', // show scrobble errors on screen (Lampa.Noty)
   }
 
   function log() {
@@ -87,9 +81,9 @@
   }
 
   // ── scrobbleClient ───────────────────────────────────────────────────────
-  // Thin fetch wrapper. No retry loop here — resilience policy lives in
-  // sessionController (heartbeat supersedes losses). Returns a Promise that
-  // resolves on 2xx and rejects with { status, message } otherwise.
+  // Thin fetch wrapper. No retry here; resilience lives in sessionController
+  // (the heartbeat supersedes losses). Resolves on 2xx, rejects with
+  // { status, message } otherwise.
 
   var scrobbleClient = {
     _request: function (method, path, body) {
@@ -225,8 +219,8 @@
   }
 
   // ── sessionController ──────────────────────────────────────────────────
-  // State machine + resilience policy. Lampa-free: driven by play/progress/
-  // finish events from playerAdapter; talks only to payloadBuilder + client.
+  // State machine + resilience. No Lampa here: driven by play/progress/finish
+  // from playerAdapter; talks only to payloadBuilder + client.
 
   var sessionController = (function () {
     var current = null // { signature, item, started, stopped, errors, intervalMs }
@@ -240,13 +234,30 @@
       return Settings.enabled && !!Settings.token
     }
 
+    // Show a Noty at most once per session per key, so a flaky network can't
+    // spam the screen on every heartbeat. Suppressed when the user turned
+    // on-screen error notifications off.
+    function notifyOnce(key, message) {
+      if (!current) return
+      if (!Lampa.Storage.get(STORAGE.notify, false)) return
+      current.notified = current.notified || {}
+      if (current.notified[key]) return
+      current.notified[key] = true
+      try {
+        Lampa.Noty.show(message)
+      } catch (e) {
+        /* noop */
+      }
+    }
+
     function onError(err) {
       if (!current) return
-      // 401/403 → invalid token: stop scrobbling this session.
+      // 401/403 means the token is invalid: stop scrobbling this session.
       if (err && (err.status === 401 || err.status === 403)) {
         log('auth error, disabling session', err)
         Settings.setStatus('invalid')
         current.stopped = true // suppress further sends this session
+        notifyOnce('auth', 'MyShows: токен недействителен — скробблинг остановлен')
         return
       }
       current.errors += 1
@@ -255,6 +266,7 @@
         // Degraded: slow the heartbeat ×4, keep trying.
         current.intervalMs = HEARTBEAT_MS * DEGRADED_MULT
         log('degraded mode: heartbeat ->', current.intervalMs, 'ms')
+        notifyOnce('degraded', 'MyShows: проблемы со связью, отправка замедлена')
       } else {
         // Transient: nudge the next heartbeat to come a bit earlier.
         current.intervalMs = HEARTBEAT_RETRY_MS
@@ -265,6 +277,9 @@
       if (!current) return
       current.errors = 0
       current.intervalMs = HEARTBEAT_MS
+      // Clear the degraded warning latch so a fresh wave of failures warns
+      // again (the auth latch stays; that session is already stopped).
+      if (current.notified) current.notified.degraded = false
       Settings.setStatus('ok')
     }
 
@@ -297,7 +312,7 @@
         var now = Date.now()
         var percent = clampPercent(item.percent)
 
-        // Threshold reached → send /stop once.
+        // Threshold reached: send /stop once.
         if (percent >= Settings.threshold) {
           this._stop(item)
           return
@@ -323,7 +338,7 @@
         current = null
       },
 
-      // /stop is terminal: best-effort with ONE immediate re-send on failure.
+      // /stop is terminal: best-effort with one immediate re-send on failure.
       _stop: function (item) {
         if (!current || current.stopped) return
         current.stopped = true
@@ -339,19 +354,14 @@
   })()
 
   // ── playerAdapter ──────────────────────────────────────────────────────
-  // THE ONLY MODULE COUPLED TO LAMPA INTERNALS.
-  // Normalizes the current card + season/episode + progress into
-  // { card, season, episode, percent } and drives sessionController.
+  // The only part tied to Lampa internals. Normalizes card + season/episode +
+  // progress and drives sessionController.
   //
-  // Mechanism (verified against Lampa app.min.js):
-  //   - Progress comes from `Lampa.PlayerVideo.listener` 'timeupdate' events
-  //     ({ duration, current }), fired on every player tick. Timeline 'update'
-  //     ({ data: { hash, road } }) is kept as a secondary/seek signal, but it
-  //     only fires ~every 2 min (server sync) so it can't drive the heartbeat.
-  //   - Card comes from Lampa.Activity.active() (card_data | card | movie),
-  //     with a fallback to the card saved on Player 'start'.
-  //   - Season/episode come from Lampa.Player.playdata() — episode items carry
-  //     season_number/episode_number (TMDB) or season/episode (parsed files).
+  // Progress: Timeline 'update' is the source of truth (it's the one signal
+  // every player emits, including external and native-TV ones). PlayerVideo
+  // 'timeupdate' just adds finer heartbeats for the built-in player.
+  // Card: Lampa.Activity.active(), falling back to the card saved on play.
+  // Season/episode: from the play data, or parsed off the title.
 
   var LAST_CARD_KEY = 'myshows_last_card'
 
@@ -359,6 +369,7 @@
     var lastPercent = 0
     var lastDuration = 0
     var lastAudioLang = undefined
+    var activeContext = null // { hash, raw } captured on start/external
 
     function firstDefined() {
       for (var i = 0; i < arguments.length; i++) {
@@ -480,7 +491,7 @@
     }
 
     // Some Lampa builds don't expose season_number/episode_number on the play
-    // item — the numbers are baked into the episode title (e.g. "S1 / Серия 1").
+    // item; the numbers are baked into the episode title (e.g. "S1 / Серия 1").
     // Parse them out as a fallback.
     function parseFromTitle(title) {
       var out = {}
@@ -497,17 +508,12 @@
       return out
     }
 
-    // Season/episode for series playback, from the active play item.
-    function readEpisode() {
-      var pd = {}
-      try {
-        pd = (Lampa.Player.playdata && Lampa.Player.playdata()) || {}
-      } catch (e) {
-        /* noop */
-      }
-      var title = pd.name || pd.title
-      var season = toNum(firstDefined(pd.season_number, pd.season))
-      var episode = toNum(firstDefined(pd.episode_number, pd.episode, pd.num))
+    // Season/episode from the play data (playdata() is empty for external players).
+    function readEpisode(data) {
+      data = data || {}
+      var title = data.title || data.name
+      var season = toNum(firstDefined(data.season_number, data.season))
+      var episode = toNum(firstDefined(data.episode_number, data.episode, data.num))
       if (season == null || episode == null) {
         var parsed = parseFromTitle(title)
         if (season == null) season = parsed.season
@@ -518,7 +524,7 @@
 
     function buildItem(percent) {
       var card = readCard()
-      var ep = readEpisode()
+      var ep = readEpisode(activeContext && activeContext.raw)
       // Treat as an episode only when we actually have an episode number.
       var asEpisode = ep.episode != null
       var v = readVideoEl()
@@ -537,30 +543,40 @@
 
     return {
       init: function () {
-        // Remember the card as soon as playback starts (robust fallback source)
-        // and open the scrobble session.
-        Lampa.Player.listener.follow('start', function (data) {
+        // Open a session. 'start' fires for the built-in player, 'external' for
+        // external ones (Android/webOS/etc); only one fires per playback.
+        function onPlaybackBegin(data) {
           try {
+            data = data || {}
             var card =
-              (data && data.card) ||
+              data.card ||
               (Lampa.Activity.active &&
                 Lampa.Activity.active() &&
                 (Lampa.Activity.active().card || Lampa.Activity.active().movie))
             if (card) Lampa.Storage.set(LAST_CARD_KEY, card)
-            lastPercent = 0
-            var item = buildItem(0)
-            log('player start', item)
+
+            var hash = data.timeline && data.timeline.hash
+            var resume =
+              data.timeline && typeof data.timeline.percent === 'number'
+                ? data.timeline.percent
+                : 0
+
+            activeContext = { hash: hash, raw: data }
+            lastPercent = resume
+
+            var item = buildItem(resume)
+            log('player begin', item)
             sessionController.play(item)
           } catch (e) {
-            log('start handler error', e)
+            log('begin handler error', e)
           }
-        })
+        }
 
-        // Primary progress signal: PlayerVideo 'timeupdate' fires on every
-        // player tick (sub-second) with { duration, current }. The /pause
-        // throttle (HEARTBEAT_MS) governs the actual send rate. We rely on this
-        // rather than Timeline 'update', which only fires ~every 2 min (server
-        // sync) and made heartbeats far too sparse.
+        Lampa.Player.listener.follow('start', onPlaybackBegin)
+        Lampa.Player.listener.follow('external', onPlaybackBegin)
+
+        // Extra heartbeats for the built-in player: 'timeupdate' fires every
+        // tick with { duration, current }; the /pause throttle caps the rate.
         if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener) {
           Lampa.PlayerVideo.listener.follow('timeupdate', function (e) {
             try {
@@ -568,13 +584,13 @@
               lastDuration = e.duration
               var percent = (e.current / e.duration) * 100
               lastPercent = percent
-              sessionController.progress(buildItem(percent))
+              if (activeContext) sessionController.progress(buildItem(percent))
             } catch (err) {
               log('timeupdate error', err)
             }
           })
 
-          // Audio tracks → remember the selected track's language.
+          // Audio tracks: remember the selected track's language.
           Lampa.PlayerVideo.listener.follow('tracks', function (e) {
             try {
               var tracks = e && e.tracks
@@ -593,13 +609,18 @@
           log('WARN: Lampa.PlayerVideo.listener missing — progress may be sparse')
         }
 
-        // Secondary signal: Timeline 'update' (authoritative percent, catches
-        // resume position / seeks). Throttled like any other progress tick.
+        // Source of truth for progress. Timeline 'update' carries the same
+        // percent Lampa uses for resume, and it's the only signal external
+        // players give us (once, on return). Matched to the session by hash.
         if (Lampa.Timeline && Lampa.Timeline.listener) {
           Lampa.Timeline.listener.follow('update', function (e) {
             try {
               var road = e && e.data && e.data.road
+              var hash = e && e.data && e.data.hash
               if (!road || typeof road.percent !== 'number') return
+              // no session, or a tick for a different file
+              if (!activeContext) return
+              if (activeContext.hash && hash && activeContext.hash !== hash) return
               lastPercent = road.percent
               sessionController.progress(buildItem(road.percent))
             } catch (err) {
@@ -614,6 +635,7 @@
           } catch (e) {
             log('destroy handler error', e)
           }
+          activeContext = null
         })
       },
     }
@@ -625,7 +647,25 @@
     Lampa.SettingsApi.addComponent({
       component: PLUGIN_ID,
       name: 'MyShows',
-      icon: '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 2 7l10 5 10-5-10-5Zm0 7.5L4.2 6 12 2.3 19.8 6 12 9.5ZM2 17l10 5 10-5v-7l-10 5L2 10v7Z"/></svg>',
+      icon: '<svg viewBox="0 0 149 152" width="24" height="24" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M28.5832 152C12.4727 152 0 139.166 0 123.765V78.0767C0 62.1626 12.9924 49.8421 28.5832 49.8421H119.53C135.64 49.8421 148.113 62.676 148.113 78.0767V123.765C148.113 139.68 135.121 152 119.53 152H28.5832ZM16.1106 83.2103V118.632C16.1106 127.359 23.3863 134.546 32.2211 134.546H115.372C124.207 134.546 131.483 127.359 131.483 118.632V83.2103C131.483 74.4832 124.207 67.2962 115.372 67.2962H32.2211C23.3863 67.2962 16.1106 74.4832 16.1106 83.2103Z"/><path fill="currentColor" d="M73.7954 24.6876C62.3621 24.6876 53.5273 33.4146 53.0076 44.1951H94.5832C94.0635 33.4146 85.2286 24.6876 73.7954 24.6876Z"/><path fill="currentColor" d="M56.1264 33.4142L31.7008 9.28645C30.6614 8.25974 30.6614 7.23302 31.7008 6.20631C32.7402 5.17959 33.7795 5.17959 34.8189 6.20631L59.2446 30.3341C60.284 31.3608 60.284 32.3875 59.2446 33.4142C58.7249 33.9276 57.1658 33.9276 56.1264 33.4142Z"/><path fill="currentColor" d="M36.422 10.5162C38.8574 8.11045 38.8574 4.21 36.422 1.80429C33.9865 -0.601431 30.038 -0.601428 27.6025 1.80429C25.1671 4.21001 25.1671 8.11045 27.6025 10.5162C30.038 12.9219 33.9865 12.9219 36.422 10.5162Z"/><path fill="currentColor" d="M88.3502 29.8209L112.776 5.69313C113.815 4.66642 114.855 4.66642 115.894 5.69313C116.934 6.71984 116.934 7.74656 115.894 8.77327L91.4684 32.9011C90.429 33.9278 89.3896 33.9278 88.3502 32.9011C87.3109 32.3877 87.3109 30.8476 88.3502 29.8209Z"/><path fill="currentColor" d="M119.134 10.7008C121.566 8.29166 121.56 4.3912 119.121 1.98888C116.683 -0.413431 112.734 -0.407898 110.302 2.00122C107.87 4.41034 107.876 8.31077 110.315 10.7131C112.753 13.1154 116.702 13.1099 119.134 10.7008Z"/></svg>',
+    })
+
+    // Connection status row (read-only). Reflects the last GET /check or
+    // scrobble result; refreshed live via the Storage listener in start().
+    Lampa.SettingsApi.addParam({
+      component: PLUGIN_ID,
+      param: { name: 'myshows_status_view', type: 'static' },
+      field: {
+        name: 'Состояние',
+        description: statusLabel(Lampa.Storage.get(STORAGE.status, '')),
+      },
+      // Capture the rendered row and sync it to the current status every time
+      // the settings screen opens (the description string above is only the
+      // initial value captured at registration time).
+      onRender: function (item) {
+        statusRow = item
+        refreshStatusRow(Lampa.Storage.get(STORAGE.status, ''))
+      },
     })
 
     Lampa.SettingsApi.addParam({
@@ -636,13 +676,12 @@
 
     Lampa.SettingsApi.addParam({
       component: PLUGIN_ID,
-      // Two Lampa quirks handled here:
-      //  - `values: ''` is REQUIRED for input params: Lampa stores
-      //    values[name] = param.values and renders
-      //    `typeof values[name] == 'string' ? ... : values[name][key]`.
-      //    Without it, values[name] is undefined → crash "reading ''".
-      //  - `placeholder` MUST be set: the input template literally inserts
-      //    `param.placeholder`, so omitting it renders the string "undefined".
+      // Two Lampa input-param quirks:
+      //  - `values: ''` is needed: Lampa stores values[name] = param.values
+      //    and renders `typeof values[name] == 'string' ? ... : values[name][key]`.
+      //    Without it values[name] is undefined and it crashes on "reading ''".
+      //  - `placeholder` must be set: the template inserts `param.placeholder`
+      //    verbatim, so omitting it renders the literal string "undefined".
       param: {
         name: STORAGE.token,
         type: 'input',
@@ -673,6 +712,15 @@
 
     Lampa.SettingsApi.addParam({
       component: PLUGIN_ID,
+      param: { name: STORAGE.notify, type: 'trigger', default: false },
+      field: {
+        name: 'Уведомления об ошибках',
+        description: 'Показывать ошибки скробблинга на экране',
+      },
+    })
+
+    Lampa.SettingsApi.addParam({
+      component: PLUGIN_ID,
       param: {
         name: STORAGE.baseUrl,
         type: 'input',
@@ -682,6 +730,33 @@
       },
       field: { name: 'Адрес API', description: 'Базовый URL scrobble API (для тестов/self-host)' },
     })
+  }
+
+  // Map the stored connection status to a short coloured label for the UI.
+  function statusLabel(code) {
+    switch (code) {
+      case 'ok':
+        return '<span style="color:#16a34a">● Подключено</span>'
+      case 'invalid':
+        return '<span style="color:#dc2626">● Токен недействителен</span>'
+      case 'error':
+        return '<span style="color:#d97706">● Нет связи с MyShows</span>'
+      default:
+        return '<span style="color:#76767e">○ Не проверено</span>'
+    }
+  }
+
+  // Live handle to the settings "Состояние" row, captured in its onRender.
+  // Lampa renders `type:'static'` params WITHOUT a data-name attribute, so we
+  // keep the element itself and patch it in place rather than re-query the DOM.
+  var statusRow = null
+  function refreshStatusRow(code) {
+    if (!statusRow) return
+    try {
+      statusRow.find('.settings-param__descr').html(statusLabel(code))
+    } catch (e) {
+      /* noop */
+    }
   }
 
   // Validate the token via GET /check and update status.
@@ -729,7 +804,18 @@
     registerSettings()
     playerAdapter.init()
 
-    // Validate the token on launch (best effort, silent — just updates status).
+    // Keep the settings "Состояние" row in sync when the stored status changes
+    // (token check, scrobble error/recovery) while the screen is open.
+    try {
+      Lampa.Storage.listener.follow('change', function (e) {
+        if (!e || e.name !== STORAGE.status) return
+        refreshStatusRow(e.value)
+      })
+    } catch (e) {
+      /* noop */
+    }
+
+    // Validate the token on launch (best effort, silent; just updates status).
     checkToken(false)
 
     log('plugin ready, version', VERSION)

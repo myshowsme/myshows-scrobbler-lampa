@@ -1,6 +1,6 @@
 {
   "name": "myshows-scrobbler-lampa",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "MyShows scrobbler plugin for Lampa",
   "keywords": [
     "lampa",
