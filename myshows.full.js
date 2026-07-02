@@ -21,7 +21,7 @@
 
   // ── Constants ────────────────────────────────────────────────────────────
 
-  var VERSION = '0.0.1' // bump on every change so the console confirms which build is live
+  var VERSION = '0.0.4' // bump on every change so the console confirms which build is live
   var PLUGIN_ID = 'myshows_scrobbler'
   var SOURCE_APP = 'lampa'
 
@@ -338,6 +338,46 @@
         current = null
       },
 
+      // One-shot mark for an episode finished inside an external player: a
+      // full /start -> /stop pair outside the regular session (on return the
+      // external player reports whole episodes, possibly several at once).
+      // The caller checks the threshold; the /stop retry mirrors _stop.
+      markEpisode: function (item, done) {
+        var finish = function () {
+          if (done) done()
+        }
+        if (!active()) return finish()
+        var payload = buildPayload(item)
+        log('mark', signatureOf(item), clampPercent(item.percent) + '%')
+        scrobbleClient.start(payload).then(function () {
+          scrobbleClient.stop(payload).then(
+            function () {
+              onSuccess()
+              finish()
+            },
+            function (err) {
+              if (err && (err.status === 401 || err.status === 403)) {
+                onError(err)
+                return finish()
+              }
+              scrobbleClient.stop(payload).then(
+                function () {
+                  onSuccess()
+                  finish()
+                },
+                function (err2) {
+                  onError(err2)
+                  finish()
+                },
+              )
+            },
+          )
+        }, function (err) {
+          onError(err)
+          finish()
+        })
+      },
+
       // /stop is terminal: best-effort with one immediate re-send on failure.
       _stop: function (item) {
         if (!current || current.stopped) return
@@ -522,6 +562,97 @@
       return { season: season, episode: episode, episodeTitle: title }
     }
 
+    // Normalize the playlist passed to an external player into
+    // [{ season, episode, title, hash }]. Lampa attaches a timeline (with the
+    // resume hash) to every element; fall back to computing the hash the way
+    // Lampa does for episodes.
+    function normalizePlaylist(list, card) {
+      var out = []
+      if (!list || !list.length) return out
+      var original = card.original_title || card.title || ''
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i] || {}
+        var ep = readEpisode(el)
+        if (ep.episode == null) continue
+        var season = ep.season != null ? ep.season : 1
+        var hash = el.timeline && el.timeline.hash
+        if (hash == null) {
+          hash = Lampa.Utils.hash([season, season > 10 ? ':' : '', ep.episode, original].join(''))
+        }
+        out.push({ season: season, episode: ep.episode, title: ep.episodeTitle, hash: String(hash) })
+      }
+      return out
+    }
+
+    function playlistIndexOf(playlist, hash, data) {
+      var i
+      if (hash != null) {
+        for (i = 0; i < playlist.length; i++) {
+          if (playlist[i].hash === String(hash)) return i
+        }
+      }
+      var ep = readEpisode(data)
+      if (ep.episode != null) {
+        for (i = 0; i < playlist.length; i++) {
+          if (
+            playlist[i].episode === ep.episode &&
+            (ep.season == null || playlist[i].season === ep.season)
+          )
+            return i
+        }
+      }
+      return 0
+    }
+
+    // Return from an external player. Lampa reports a timecode per finished
+    // episode (earlier playlist items are set to 100%), but some player
+    // integrations deliver only the last played one. Cover both: mark the
+    // whole range from the launched episode to the reported one — everything
+    // before it was passed inside the player, the reported one counts by its
+    // actual percent. Sequential, deduped per session.
+    function onExternalTimeline(hash, percent) {
+      var pl = activeContext.playlist
+      var idx = -1
+      for (var i = 0; i < pl.length; i++) {
+        if (pl[i].hash === hash) {
+          idx = i
+          break
+        }
+      }
+      if (idx < 0) return
+
+      var from = activeContext.launchIndex
+      var to = idx
+      if (from > to) {
+        var t = from
+        from = to
+        to = t
+      }
+
+      var queue = []
+      for (var j = from; j <= to; j++) {
+        var pct = j === idx ? percent : 100
+        if (activeContext.marked[j]) continue
+        if (clampPercent(pct) < Settings.threshold) continue
+        activeContext.marked[j] = true
+        queue.push({ entry: pl[j], percent: pct })
+      }
+      if (!queue.length) return
+
+      log('external return: marking', queue.length, 'episode(s)')
+
+      function step() {
+        var next = queue.shift()
+        if (!next) return
+        var item = buildItem(next.percent)
+        item.season = next.entry.season
+        item.episode = next.entry.episode
+        item.episodeTitle = next.entry.title
+        sessionController.markEpisode(item, step)
+      }
+      step()
+    }
+
     function buildItem(percent) {
       var card = readCard()
       var ep = readEpisode(activeContext && activeContext.raw)
@@ -545,7 +676,7 @@
       init: function () {
         // Open a session. 'start' fires for the built-in player, 'external' for
         // external ones (Android/webOS/etc); only one fires per playback.
-        function onPlaybackBegin(data) {
+        function onPlaybackBegin(data, external) {
           try {
             data = data || {}
             var card =
@@ -561,10 +692,23 @@
                 ? data.timeline.percent
                 : 0
 
-            activeContext = { hash: hash, raw: data }
+            activeContext = {
+              hash: hash,
+              raw: data,
+              external: !!external,
+              playlist: [],
+              launchIndex: 0,
+              marked: {},
+            }
             lastPercent = resume
 
             var item = buildItem(resume)
+
+            if (external) {
+              activeContext.playlist = normalizePlaylist(data.playlist, item.card)
+              activeContext.launchIndex = playlistIndexOf(activeContext.playlist, hash, data)
+            }
+
             log('player begin', item)
             sessionController.play(item)
           } catch (e) {
@@ -572,8 +716,12 @@
           }
         }
 
-        Lampa.Player.listener.follow('start', onPlaybackBegin)
-        Lampa.Player.listener.follow('external', onPlaybackBegin)
+        Lampa.Player.listener.follow('start', function (data) {
+          onPlaybackBegin(data, false)
+        })
+        Lampa.Player.listener.follow('external', function (data) {
+          onPlaybackBegin(data, true)
+        })
 
         // Extra heartbeats for the built-in player: 'timeupdate' fires every
         // tick with { duration, current }; the /pause throttle caps the rate.
@@ -620,6 +768,11 @@
               if (!road || typeof road.percent !== 'number') return
               // no session, or a tick for a different file
               if (!activeContext) return
+              // External session with a playlist: episodes are matched to the
+              // playlist by hash instead of the single-file filter below.
+              if (activeContext.external && activeContext.playlist.length) {
+                return onExternalTimeline(String(hash), road.percent)
+              }
               if (activeContext.hash && hash && activeContext.hash !== hash) return
               lastPercent = road.percent
               sessionController.progress(buildItem(road.percent))
