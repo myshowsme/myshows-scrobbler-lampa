@@ -3,8 +3,8 @@
 Плагин для [Lampa](https://github.com/yumata/lampa-source), который автоматически отправляет
 прогресс просмотра в ваш профиль [MyShows](https://myshows.me): следит за плеером и передаёт
 прогресс просмотра. Какая именно это серия или фильм — определяет бэкенд MyShows, плагин
-шлёт только идентификаторы и прогресс, по умолчанию вы решаете добавить данный просмотр в 
-профиль или нет. Весь прогресс отправленный из плагина отображается в разделе "История 
+шлёт только идентификаторы и прогресс, по умолчанию вы решаете добавить данный просмотр в
+профиль или нет. Весь прогресс отправленный из плагина отображается в разделе "История
 просмотров" на сайте MyShows.
 
 ## Возможности
@@ -28,12 +28,12 @@
 
 ## Настройки
 
-| Параметр            | Назначение                                               | Дефолт     |
-| ------------------- | -------------------------------------------------------- | ---------- |
-| Скробблинг          | вкл/выкл отправки                                        | вкл        |
-| Токен MyShows       | Bearer-токен из профиля; проверяется при вводе (`/check`)| —          |
-| Порог «просмотрено» | % для засчёта просмотра (50/60/70/80/90/95)              | 80 %       |
-| Адрес API           | базовый URL scrobble API (тест/self-host)               | myshows.me |
+| Параметр            | Назначение                                                | Дефолт     |
+| ------------------- | --------------------------------------------------------- | ---------- |
+| Скробблинг          | вкл/выкл отправки                                         | вкл        |
+| Токен MyShows       | Bearer-токен из профиля; проверяется при вводе (`/check`) | —          |
+| Порог «просмотрено» | % для засчёта просмотра (50/60/70/80/90/95)               | 80 %       |
+| Адрес API           | базовый URL scrobble API (тест/self-host)                 | myshows.me |
 
 Все настройки хранятся на каждый профиль аккаунта Lampa отдельно: при переключении профиля
 подхватываются его значения. Новый профиль начинает с настроек по умолчанию (пустой токен) —
@@ -58,13 +58,19 @@
 коммитится** — его собирает и публикует CI:
 
 ```bash
-pnpm install      # один раз
+pnpm install      # один раз (ставит и git-хук через postinstall simple-git-hooks)
 pnpm run build    # src/ -> myshows.js (Vite lib IIFE → Babel ES5 → Terser ecma:5)
+pnpm run dev      # то же в watch-режиме: пересборка myshows.js на каждое сохранение
 pnpm run check    # typecheck + lint + тесты одной командой
 ```
 
-Отдельные команды: `pnpm test` (Vitest), `pnpm typecheck` (tsc), `pnpm lint` (oxlint),
-`pnpm format` (oxfmt). VSCode форматирует на сохранении через расширение `oxc.oxc-vscode`.
+Отдельные команды: `pnpm test` / `pnpm test:watch` (Vitest), `pnpm typecheck` (tsc),
+`pnpm lint` (oxlint, `--deny-warnings`), `pnpm format` (oxfmt). VSCode форматирует на
+сохранении через расширение `oxc.oxc-vscode`. Pre-commit хук (simple-git-hooks + nano-staged)
+форматирует застейдженные файлы и блокирует коммит на ошибках линта.
+
+Дев-цикл: логику гоняешь через `pnpm test:watch`; артефакт под реальную Lampa/эмулятор —
+через `pnpm dev` (watch-сборка `myshows.js`).
 
 **Почему такой пайплайн.** Целевые устройства (старые Tizen/WebOS) требуют ES5-синтаксиса,
 а esbuild/Rolldown (движки Vite) ниже ES2015 не спускаются — поэтому финальный даунлевел
@@ -89,17 +95,17 @@ pnpm run check    # typecheck + lint + тесты одной командой
 
 Чистая логика отделена от кода, завязанного на Lampa (последний — тонкий слой):
 
-| Модуль | Ответственность | Тесты |
-| --- | --- | --- |
-| `payload-builder.ts` | `ScrobbleItem` → wire-DTO | ✓ |
-| `player-parse.ts` | парсинг TMDB/названий → `Card`, сезон/серия | ✓ |
-| `session-controller.ts` | машина состояний: dedup, heartbeat, порог, degraded, retry | ✓ |
-| `utils.ts` | `clampPercent`, `mapResolution`, `storableValue` | ✓ |
-| `scrobble-client.ts` | `fetch`-обёртка над scrobble API | |
-| `player-adapter.ts` | слушатели Lampa.Player/PlayerVideo/Timeline → драйвит сессию | |
-| `settings.ts` / `settings-ui.ts` | чтение настроек / экран SettingsApi | |
-| `profiles.ts` | настройки на профиль аккаунта Lampa | |
-| `lampa.d.ts` | свои ambient-типы для `Lampa` (публичных `@types/lampa` нет) | |
+| Модуль                           | Ответственность                                              | Тесты |
+| -------------------------------- | ------------------------------------------------------------ | ----- |
+| `payload-builder.ts`             | `ScrobbleItem` → wire-DTO                                    | ✓     |
+| `player-parse.ts`                | парсинг TMDB/названий → `Card`, сезон/серия                  | ✓     |
+| `session-controller.ts`          | машина состояний: dedup, heartbeat, порог, degraded, retry   | ✓     |
+| `utils.ts`                       | `clampPercent`, `mapResolution`, `storableValue`             | ✓     |
+| `scrobble-client.ts`             | `fetch`-обёртка над scrobble API                             |       |
+| `player-adapter.ts`              | слушатели Lampa.Player/PlayerVideo/Timeline → драйвит сессию |       |
+| `settings.ts` / `settings-ui.ts` | чтение настроек / экран SettingsApi                          |       |
+| `profiles.ts`                    | настройки на профиль аккаунта Lampa                          |       |
+| `lampa.d.ts`                     | свои ambient-типы для `Lampa` (публичных `@types/lampa` нет) |       |
 
 Логика инъектится через фабрики (`createSessionController`, `createScrobbleClient`, …), так
 что ядро тестируется с фейками — без реального `Lampa` и сети.

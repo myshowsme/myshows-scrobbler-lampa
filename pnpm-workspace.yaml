@@ -1,10 +1,7 @@
-# esbuild needs a native postinstall to link its platform binary.
-# `onlyBuiltDependencies` is the standard pnpm key (used by CI's stock pnpm).
-# `allowBuilds` is vite-plus pnpm's equivalent (used locally). Keep both so the
-# build is approved regardless of which pnpm runs.
-onlyBuiltDependencies:
-  - esbuild
+# pnpm 11 approves dependency build/postinstall scripts via `allowBuilds`
+# (a map of package -> true/false). This replaced onlyBuiltDependencies in v11.
+#   esbuild          — links its native binary (needed by Vite/Vitest)
+#   simple-git-hooks — its postinstall installs the git pre-commit hook
 allowBuilds:
   esbuild: true
-  # We install the hook via our own `prepare` script, not this postinstall.
-  simple-git-hooks: false
+  simple-git-hooks: true
