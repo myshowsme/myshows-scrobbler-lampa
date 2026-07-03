@@ -124,6 +124,28 @@
     return pid ? base + '_profile_' + pid : base
   }
 
+  // Adoption of pre-profile settings. If no profile has ever owned any keys
+  // (no '<token>_profile_*' in storage) but device-wide base values exist —
+  // this is an install from before the per-profile scheme. The first profile
+  // to show up adopts those values, so existing users keep their token and
+  // scrobbling silently. Once any profile keys exist, the base keys always
+  // belong to the last active profile and are never adopted again — profiles
+  // stay isolated, nothing leaks between them.
+  function adoptBaseSettings() {
+    var pid = profileId()
+    if (!pid) return
+    if (window.localStorage.getItem(profileKey(STORAGE.token)) !== null) return
+    if (window.localStorage.getItem(STORAGE.token) === null) return
+    for (var i = 0; i < window.localStorage.length; i++) {
+      var key = window.localStorage.key(i)
+      if (key && key.indexOf(STORAGE.token + '_profile_') === 0) return
+    }
+    log('adopting pre-profile settings for profile', pid)
+    PROFILE_SCOPED.forEach(function (k) {
+      Lampa.Storage.set(profileKey(k.name), storableValue(Lampa.Storage.get(k.name, k.def)))
+    })
+  }
+
   // First time a profile is seen: materialize its keys with the defaults —
   // profiles are isolated, nothing leaks from the previous profile.
   function ensureProfileKeys() {
@@ -167,6 +189,7 @@
     lastSyncedProfile = pid
     // The previous profile's session must not be closed with the new token.
     sessionController.abort()
+    adoptBaseSettings()
     ensureProfileKeys()
     syncProfileToBase()
     Settings.setStatus('')
@@ -902,6 +925,7 @@
 
     // Load the active profile's values before the settings UI registers.
     lastSyncedProfile = profileId()
+    adoptBaseSettings()
     ensureProfileKeys()
     syncProfileToBase()
 
