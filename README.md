@@ -54,8 +54,8 @@
 ### Сборка
 
 Источник правды — модули в **`src/`** (TypeScript, ES-модули). Install-артефакт
-**`myshows.js`** генерируется из них и **руками не редактируется** (в шапке — баннер
-`AUTO-GENERATED`):
+**`myshows.js`** генерируется из них (в шапке — баннер `AUTO-GENERATED`) и **в git не
+коммитится** — его собирает и публикует CI:
 
 ```bash
 pnpm install      # один раз
@@ -70,7 +70,20 @@ pnpm run check    # typecheck + lint + тесты одной командой
 а esbuild/Rolldown (движки Vite) ниже ES2015 не спускаются — поэтому финальный даунлевел
 делает Babel (`preset-env`, без core-js: `fetch`/`Promise`/`Object.assign` не полифилятся,
 считаются присутствующими). Итог — один самодостаточный IIFE, чистый ES5, только через
-`window.Lampa`, `'use strict'`. Хостинг — GitHub Pages из корня ветки `main`.
+`window.Lampa`, `'use strict'`.
+
+### Публикация (CI)
+
+Воркфлоу [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+- **`check`** (typecheck + lint + тесты) — на каждый push и pull request;
+- **`deploy`** — только на push в `main` и только после зелёного `check`: собирает
+  `myshows.js` и публикует его вместе с `index.html` в GitHub Pages.
+
+Правишь только `src/` и пушишь — сборка и деплой автоматические, устареть артефакт не может.
+Требует одноразовой настройки в репозитории: **Settings → Pages → Source → GitHub Actions**.
+Публичная ссылка при этом не меняется:
+`https://myshowsme.github.io/myshows-scrobbler-lampa/myshows.js`.
 
 ### Структура
 

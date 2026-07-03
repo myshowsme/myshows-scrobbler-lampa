@@ -1,2 +1,8 @@
+# esbuild needs a native postinstall to link its platform binary.
+# `onlyBuiltDependencies` is the standard pnpm key (used by CI's stock pnpm).
+# `allowBuilds` is vite-plus pnpm's equivalent (used locally). Keep both so the
+# build is approved regardless of which pnpm runs.
+onlyBuiltDependencies:
+  - esbuild
 allowBuilds:
   esbuild: true
