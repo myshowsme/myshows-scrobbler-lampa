@@ -4,5 +4,5 @@
   "singleQuote": true,
   "printWidth": 100,
   "trailingComma": "all",
-  "ignorePatterns": []
+  "ignorePatterns": ["myshows.js", "dist/**"]
 }

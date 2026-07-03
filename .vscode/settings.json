@@ -1,7 +1,8 @@
 {
-  // Format with oxfmt (via the Oxc VSCode extension) on save.
+  // Format with oxfmt (via the Oxc VSCode extension) on save — only for the
+  // languages we own (JS/TS/JSON). No global default formatter, so Markdown/HTML
+  // are left alone. myshows.js is skipped via .oxfmtrc ignorePatterns.
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "oxc.oxc-vscode",
   "oxc.fmt.experimental": true,
   "[typescript]": {
     "editor.defaultFormatter": "oxc.oxc-vscode"
