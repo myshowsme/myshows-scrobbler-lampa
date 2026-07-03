@@ -59,8 +59,8 @@
 
 ```bash
 pnpm install      # один раз (ставит и git-хук через postinstall simple-git-hooks)
-pnpm run build    # src/ -> myshows.js (Vite lib IIFE → Babel ES5 → Terser ecma:5)
-pnpm run dev      # то же в watch-режиме: пересборка myshows.js на каждое сохранение
+pnpm run build    # src/ -> dist/myshows.js (Vite lib IIFE → Babel ES5 → Terser ecma:5)
+pnpm run dev      # то же в watch-режиме: пересборка dist/myshows.js на сохранение
 pnpm run check    # typecheck + lint + тесты одной командой
 ```
 

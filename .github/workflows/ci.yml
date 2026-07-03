@@ -49,11 +49,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build # src/ -> myshows.js (ES5 IIFE)
+      - run: pnpm build # src/ -> dist/myshows.js (ES5 IIFE)
       - name: Assemble Pages site
         run: |
           mkdir -p _site
-          cp index.html myshows.js _site/
+          cp index.html _site/
+          cp dist/myshows.js _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

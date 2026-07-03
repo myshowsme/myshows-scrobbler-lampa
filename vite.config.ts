@@ -57,10 +57,10 @@ export default defineConfig({
       name: 'MyShowsScrobbler',
       fileName: () => 'myshows.js',
     },
-    // Emit the install artifact straight to the repo root (served by GitHub
-    // Pages, linked from the README). emptyOutDir:false so it doesn't wipe root.
-    outDir: '.',
-    emptyOutDir: false,
+    // Emit to dist/ (its own dir — Vite warns against building into the repo
+    // root). CI publishes dist/myshows.js + index.html to GitHub Pages.
+    outDir: 'dist',
+    emptyOutDir: true,
   },
   plugins: [babelDownlevelToEs5()],
   test: {
