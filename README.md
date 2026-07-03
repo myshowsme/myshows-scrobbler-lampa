@@ -53,17 +53,43 @@
 
 ### Сборка
 
-Источник правды — **`myshows.full.js`** (правишь только его). Install-артефакт
-**`myshows.js`** минифицируется из него и **руками не редактируется**:
+Источник правды — модули в **`src/`** (TypeScript, ES-модули). Install-артефакт
+**`myshows.js`** генерируется из них и **руками не редактируется** (в шапке — баннер
+`AUTO-GENERATED`):
 
 ```bash
 pnpm install      # один раз
-pnpm run build    # myshows.full.js -> myshows.js (terser, ecma 5)
+pnpm run build    # src/ -> myshows.js (Vite lib IIFE → Babel ES5 → Terser ecma:5)
+pnpm run check    # typecheck + lint + тесты одной командой
 ```
 
-Один самодостаточный файл-плагин (IIFE, чистый ES5, только через `window.Lampa`). Версия
-пишется в консоль при загрузке, чтобы видеть живую сборку. Хостинг — GitHub Pages из корня
-ветки `main`.
+Отдельные команды: `pnpm test` (Vitest), `pnpm typecheck` (tsc), `pnpm lint` (oxlint),
+`pnpm format` (oxfmt). VSCode форматирует на сохранении через расширение `oxc.oxc-vscode`.
+
+**Почему такой пайплайн.** Целевые устройства (старые Tizen/WebOS) требуют ES5-синтаксиса,
+а esbuild/Rolldown (движки Vite) ниже ES2015 не спускаются — поэтому финальный даунлевел
+делает Babel (`preset-env`, без core-js: `fetch`/`Promise`/`Object.assign` не полифилятся,
+считаются присутствующими). Итог — один самодостаточный IIFE, чистый ES5, только через
+`window.Lampa`, `'use strict'`. Хостинг — GitHub Pages из корня ветки `main`.
+
+### Структура
+
+Чистая логика отделена от кода, завязанного на Lampa (последний — тонкий слой):
+
+| Модуль | Ответственность | Тесты |
+| --- | --- | --- |
+| `payload-builder.ts` | `ScrobbleItem` → wire-DTO | ✓ |
+| `player-parse.ts` | парсинг TMDB/названий → `Card`, сезон/серия | ✓ |
+| `session-controller.ts` | машина состояний: dedup, heartbeat, порог, degraded, retry | ✓ |
+| `utils.ts` | `clampPercent`, `mapResolution`, `storableValue` | ✓ |
+| `scrobble-client.ts` | `fetch`-обёртка над scrobble API | |
+| `player-adapter.ts` | слушатели Lampa.Player/PlayerVideo/Timeline → драйвит сессию | |
+| `settings.ts` / `settings-ui.ts` | чтение настроек / экран SettingsApi | |
+| `profiles.ts` | настройки на профиль аккаунта Lampa | |
+| `lampa.d.ts` | свои ambient-типы для `Lampa` (публичных `@types/lampa` нет) | |
+
+Логика инъектится через фабрики (`createSessionController`, `createScrobbleClient`, …), так
+что ядро тестируется с фейками — без реального `Lampa` и сети.
 
 ### Как работает (технически)
 

@@ -1,6 +1,9 @@
 import { transformSync } from '@babel/core'
 import { defineConfig, type Plugin } from 'vitest/config'
 
+const BANNER =
+  '/*! MyShows scrobbler plugin for Lampa — AUTO-GENERATED from src/ by pnpm build. Do not edit by hand. */'
+
 // The crux of the whole experiment: Vite/esbuild/Rolldown cannot emit ES5
 // (their floor is ES2015). Split of labor:
 //
@@ -25,6 +28,10 @@ function babelDownlevelToEs5(): Plugin {
         babelrc: false,
         configFile: false,
         presets: [['@babel/preset-env', { targets: { ie: '11' }, modules: false }]],
+        // All our iterables are arrays/arguments — compile spread & for-of to
+        // plain index loops instead of Symbol.iterator helpers, so the artifact
+        // stays lean and never depends on Symbol (absent on the oldest TVs).
+        assumptions: { iterableIsArray: true },
       })
       return result?.code ? { code: result.code, map: null } : null
     },
@@ -39,16 +46,21 @@ export default defineConfig({
       ecma: 5, // keep the minified output ES5 for old Tizen / WebOS runtimes
       compress: { passes: 2 },
       mangle: true,
-      format: { comments: false },
+      // Prepend the banner + a top-level 'use strict' directive. The ESM source
+      // is strict, but bundling to a classic-script IIFE drops the directive —
+      // re-assert it as the first statement so the whole file runs strict.
+      format: { comments: false, preamble: BANNER + '\n"use strict";' },
     },
     lib: {
       entry: 'src/index.ts',
       formats: ['iife'],
-      name: 'MyShowsScrobblerPoC',
-      fileName: () => 'myshows.poc.js',
+      name: 'MyShowsScrobbler',
+      fileName: () => 'myshows.js',
     },
-    outDir: 'dist',
-    emptyOutDir: true,
+    // Emit the install artifact straight to the repo root (served by GitHub
+    // Pages, linked from the README). emptyOutDir:false so it doesn't wipe root.
+    outDir: '.',
+    emptyOutDir: false,
   },
   plugins: [babelDownlevelToEs5()],
   test: {

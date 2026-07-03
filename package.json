@@ -19,13 +19,13 @@
   },
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "build:modern": "vite build",
+    "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
-    "format": "oxfmt src"
+    "format": "oxfmt src",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
