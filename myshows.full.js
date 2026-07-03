@@ -569,7 +569,10 @@
     function normalizePlaylist(list, card) {
       var out = []
       if (!list || !list.length) return out
-      var original = card.original_title || card.title || ''
+      // readCard() already folds original_name into original_title. No title
+      // fallback: Lampa hashes original_name || original_title (or an empty
+      // string) — a localized title would produce a knowingly wrong hash.
+      var original = card.original_title || ''
       for (var i = 0; i < list.length; i++) {
         var el = list[i] || {}
         var ep = readEpisode(el)
@@ -601,7 +604,7 @@
             return i
         }
       }
-      return 0
+      return -1
     }
 
     // Return from an external player. Lampa reports a timecode per finished
@@ -619,20 +622,37 @@
           break
         }
       }
-      if (idx < 0) return
-
-      var from = activeContext.launchIndex
-      var to = idx
-      if (from > to) {
-        var t = from
-        from = to
-        to = t
+      if (idx < 0) {
+        // Not in the playlist (normalization miss): fall back to the plain
+        // session filter so the launched episode's scrobble is not lost.
+        if (!activeContext.hash || !hash || String(activeContext.hash) === hash) {
+          lastPercent = percent
+          sessionController.progress(buildItem(percent))
+        }
+        return
       }
 
+      // Range from the launched episode to the reported one. Backward jumps
+      // (or an unknown launch index) mark only the reported episode — never
+      // a just-started earlier episode at 100%.
+      var from = activeContext.launchIndex
+      if (from < 0 || from > idx) from = idx
+
       var queue = []
-      for (var j = from; j <= to; j++) {
+      for (var j = from; j <= idx; j++) {
         var pct = j === idx ? percent : 100
         if (activeContext.marked[j]) continue
+
+        if (j === activeContext.launchIndex) {
+          // The launched episode already has an open session — drive it
+          // instead of opening a second one: /pause keeps flowing and /stop
+          // closes the original /start.
+          lastPercent = pct
+          sessionController.progress(buildItem(pct))
+          if (clampPercent(pct) >= Settings.threshold) activeContext.marked[j] = true
+          continue
+        }
+
         if (clampPercent(pct) < Settings.threshold) continue
         activeContext.marked[j] = true
         queue.push({ entry: pl[j], percent: pct })
