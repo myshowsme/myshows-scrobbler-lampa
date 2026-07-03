@@ -6,3 +6,5 @@ onlyBuiltDependencies:
   - esbuild
 allowBuilds:
   esbuild: true
+  # We install the hook via our own `prepare` script, not this postinstall.
+  simple-git-hooks: false
