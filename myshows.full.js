@@ -21,7 +21,7 @@
 
   // ── Constants ────────────────────────────────────────────────────────────
 
-  var VERSION = '0.0.1' // bump on every change so the console confirms which build is live
+  var VERSION = '0.0.3' // bump on every change so the console confirms which build is live
   var PLUGIN_ID = 'myshows_scrobbler'
   var SOURCE_APP = 'lampa'
 
@@ -78,6 +78,122 @@
       // status: 'ok' | 'invalid' | 'error' | ''
       Lampa.Storage.set(STORAGE.status, status)
     },
+  }
+
+  // ── profiles ─────────────────────────────────────────────────────────────
+  // Per-profile settings. When Lampa account profiles are in use, every
+  // user-facing setting is scoped to the active profile under
+  // '<key>_profile_<id>'; a profile seen for the first time starts from the
+  // defaults. The base key stays the live buffer the SettingsApi UI binds to:
+  // on profile switch the profile values are copied to the base keys, and UI
+  // edits are mirrored back to the profile keys. Without profiles the base
+  // key is the storage itself and behavior is unchanged.
+
+  var PROFILE_SCOPED = [
+    { name: STORAGE.token, def: '' },
+    { name: STORAGE.enabled, def: 'true' },
+    { name: STORAGE.threshold, def: String(DEFAULT_THRESHOLD) },
+    { name: STORAGE.notify, def: 'false' },
+    { name: STORAGE.baseUrl, def: DEFAULT_BASE_URL },
+  ]
+
+  var profileSyncing = false // guard: our own sync writes must not re-mirror
+
+  // Lampa.Storage caches raw values in memory, and its get() drops falsy
+  // cached values in favor of the default ('value || empty'). A cached
+  // boolean false would therefore read back as the default — store booleans
+  // as 'true'/'false' strings, which get() parses back to booleans.
+  function storableValue(v) {
+    if (v === true) return 'true'
+    if (v === false) return 'false'
+    return v
+  }
+
+  function profileId() {
+    try {
+      var acc = Lampa.Account && Lampa.Account.Permit && Lampa.Account.Permit.account
+      if (acc && acc.profile && acc.profile.id) return String(acc.profile.id)
+    } catch (e) {
+      /* noop */
+    }
+    return ''
+  }
+
+  function profileKey(base) {
+    var pid = profileId()
+    return pid ? base + '_profile_' + pid : base
+  }
+
+  // Adoption of pre-profile settings. If no profile has ever owned any keys
+  // (no '<token>_profile_*' in storage) but device-wide base values exist —
+  // this is an install from before the per-profile scheme. The first profile
+  // to show up adopts those values, so existing users keep their token and
+  // scrobbling silently. Once any profile keys exist, the base keys always
+  // belong to the last active profile and are never adopted again — profiles
+  // stay isolated, nothing leaks between them.
+  function adoptBaseSettings() {
+    var pid = profileId()
+    if (!pid) return
+    if (window.localStorage.getItem(profileKey(STORAGE.token)) !== null) return
+    if (window.localStorage.getItem(STORAGE.token) === null) return
+    for (var i = 0; i < window.localStorage.length; i++) {
+      var key = window.localStorage.key(i)
+      if (key && key.indexOf(STORAGE.token + '_profile_') === 0) return
+    }
+    log('adopting pre-profile settings for profile', pid)
+    PROFILE_SCOPED.forEach(function (k) {
+      Lampa.Storage.set(profileKey(k.name), storableValue(Lampa.Storage.get(k.name, k.def)))
+    })
+  }
+
+  // First time a profile is seen: materialize its keys with the defaults —
+  // profiles are isolated, nothing leaks from the previous profile.
+  function ensureProfileKeys() {
+    PROFILE_SCOPED.forEach(function (k) {
+      var key = profileKey(k.name)
+      if (key !== k.name && window.localStorage.getItem(key) === null) {
+        Lampa.Storage.set(key, k.def)
+      }
+    })
+  }
+
+  // Profile values -> base keys (what Settings and the settings UI read).
+  function syncProfileToBase() {
+    profileSyncing = true
+    PROFILE_SCOPED.forEach(function (k) {
+      Lampa.Storage.set(k.name, storableValue(Lampa.Storage.get(profileKey(k.name), k.def)))
+    })
+    profileSyncing = false
+  }
+
+  // A base key edited in the settings UI -> copy to the profile key.
+  function mirrorToProfile(name, value) {
+    if (profileSyncing) return
+    for (var i = 0; i < PROFILE_SCOPED.length; i++) {
+      if (PROFILE_SCOPED[i].name === name) {
+        var key = profileKey(name)
+        if (key !== name) Lampa.Storage.set(key, storableValue(value))
+        return
+      }
+    }
+  }
+
+  // Several events can announce the same switch (and some fire before the
+  // account object is updated) — resync only when the id actually changed.
+  var lastSyncedProfile = null
+
+  function onProfileChanged() {
+    var pid = profileId()
+    if (pid === lastSyncedProfile) return
+    log('profile switch, id', pid || '(none)')
+    lastSyncedProfile = pid
+    // The previous profile's session must not be closed with the new token.
+    sessionController.abort()
+    adoptBaseSettings()
+    ensureProfileKeys()
+    syncProfileToBase()
+    Settings.setStatus('')
+    checkToken(false)
   }
 
   // ── scrobbleClient ───────────────────────────────────────────────────────
@@ -335,6 +451,12 @@
         if (!current.stopped && clampPercent(used.percent) >= Settings.threshold) {
           this._stop(used)
         }
+        current = null
+      },
+
+      // Drop the session without sending anything (profile switch: the new
+      // profile's token must not close the previous profile's session).
+      abort: function () {
         current = null
       },
 
@@ -801,15 +923,39 @@
       /* noop */
     }
 
+    // Load the active profile's values before the settings UI registers.
+    lastSyncedProfile = profileId()
+    adoptBaseSettings()
+    ensureProfileKeys()
+    syncProfileToBase()
+
     registerSettings()
     playerAdapter.init()
 
     // Keep the settings "Состояние" row in sync when the stored status changes
-    // (token check, scrobble error/recovery) while the screen is open.
+    // (token check, scrobble error/recovery) while the screen is open, and
+    // mirror settings edits to the active profile's keys.
     try {
       Lampa.Storage.listener.follow('change', function (e) {
-        if (!e || e.name !== STORAGE.status) return
-        refreshStatusRow(e.value)
+        if (!e || !e.name) return
+        if (e.name === STORAGE.status) return refreshStatusRow(e.value)
+        mirrorToProfile(e.name, e.value)
+      })
+    } catch (e) {
+      /* noop */
+    }
+
+    // Re-scope settings when the user switches the Lampa account profile.
+    // 'profile_select' lives on the Account module's own listener (not the
+    // global one) and fires right at selection with account.profile already
+    // updated; 'state:changed' favorite/profile arrives later, after the
+    // bookmarks resync. onProfileChanged dedupes by profile id.
+    try {
+      if (Lampa.Account && Lampa.Account.listener) {
+        Lampa.Account.listener.follow('profile_select', onProfileChanged)
+      }
+      Lampa.Listener.follow('state:changed', function (e) {
+        if (e && e.target === 'favorite' && e.reason === 'profile') onProfileChanged()
       })
     } catch (e) {
       /* noop */
