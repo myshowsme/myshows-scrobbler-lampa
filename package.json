@@ -25,6 +25,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src --deny-warnings",
+    "lint:fix": "oxlint src --fix",
     "format": "oxfmt src index.html package.json",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
@@ -45,6 +46,7 @@
   },
   "nano-staged": {
     "*.{ts,js}": [
+      "oxlint --fix",
       "oxfmt",
       "oxlint --deny-warnings"
     ],

@@ -15,13 +15,17 @@ export interface EpisodeInfo {
 
 function firstDefined<T>(...vals: (T | null | undefined)[]): T | undefined {
   for (const v of vals) {
-    if (v !== undefined && v !== null) return v
+    if (v !== undefined && v !== null) {
+      return v
+    }
   }
   return undefined
 }
 
 function toNum(v: unknown): number | undefined {
-  if (v === undefined || v === null || v === '') return undefined
+  if (v === undefined || v === null || v === '') {
+    return undefined
+  }
   const n = parseInt(v as string, 10)
   return isNaN(n) ? undefined : n
 }
@@ -40,9 +44,13 @@ const LANG_MAP: Record<string, string> = {
 }
 
 export function normalizeLang(code: unknown): string | undefined {
-  if (!code) return undefined
+  if (!code) {
+    return undefined
+  }
   const c = String(code).toLowerCase().slice(0, 3)
-  if (LANG_MAP[c]) return LANG_MAP[c]
+  if (LANG_MAP[c]) {
+    return LANG_MAP[c]
+  }
   return c.slice(0, 2)
 }
 
@@ -54,10 +62,14 @@ export function extractContentRating(src: Raw): string | undefined {
     if (cr && cr.length) {
       const byc: Record<string, string> = {}
       cr.forEach(function (r: Raw) {
-        if (r && r.rating) byc[r.iso_3166_1] = r.rating
+        if (r && r.rating) {
+          byc[r.iso_3166_1] = r.rating
+        }
       })
       const tv = byc.RU || byc.US || (cr.find((r: Raw) => r && r.rating) || {}).rating
-      if (tv) return tv
+      if (tv) {
+        return tv
+      }
     }
     const rd = src.release_dates && src.release_dates.results
     if (rd && rd.length) {
@@ -69,7 +81,9 @@ export function extractContentRating(src: Raw): string | undefined {
         pick &&
         pick.release_dates &&
         (pick.release_dates.find((d: Raw) => d.certification) || {}).certification
-      if (cert) return cert
+      if (cert) {
+        return cert
+      }
     }
   } catch {
     /* noop */
@@ -79,7 +93,9 @@ export function extractContentRating(src: Raw): string | undefined {
 
 // Normalize a raw TMDB-ish source object into our Card.
 export function normalizeCard(src: Raw | null | undefined): Card {
-  if (!src) return {}
+  if (!src) {
+    return {}
+  }
   const ext = src.external_ids || {}
   const date = src.release_date || src.first_air_date || ''
   return {
@@ -104,15 +120,23 @@ export function parseFromTitle(title: string | undefined): {
   episode?: number
 } {
   const out: { season?: number; episode?: number } = {}
-  if (!title) return out
+  if (!title) {
+    return out
+  }
   const ms = title.match(/\bS(?:eason)?\s*(\d+)/i) || title.match(/сезон\s*(\d+)/i)
-  if (ms) out.season = parseInt(ms[1]!, 10)
+  if (ms) {
+    out.season = parseInt(ms[1]!, 10)
+  }
   const me = title.match(/(?:сери[яї]|episode|эпизод|епізод|ep\.?|\bE)\s*(\d+)/i)
-  if (me) out.episode = parseInt(me[1]!, 10)
+  if (me) {
+    out.episode = parseInt(me[1]!, 10)
+  }
   // Last resort: a trailing number, e.g. "… Серия 1".
   if (out.episode == null) {
     const mt = title.match(/(\d+)\s*$/)
-    if (mt) out.episode = parseInt(mt[1]!, 10)
+    if (mt) {
+      out.episode = parseInt(mt[1]!, 10)
+    }
   }
   return out
 }
@@ -125,8 +149,12 @@ export function readEpisode(data: Raw | null | undefined): EpisodeInfo {
   let episode = toNum(firstDefined(data.episode_number, data.episode, data.num))
   if (season == null || episode == null) {
     const parsed = parseFromTitle(title)
-    if (season == null) season = parsed.season
-    if (episode == null) episode = parsed.episode
+    if (season == null) {
+      season = parsed.season
+    }
+    if (episode == null) {
+      episode = parsed.episode
+    }
   }
   return { season, episode, episodeTitle: title }
 }

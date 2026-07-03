@@ -80,7 +80,9 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
           (Lampa.Activity.active &&
             Lampa.Activity.active() &&
             (Lampa.Activity.active().card || Lampa.Activity.active().movie))
-        if (card) Lampa.Storage.set(LAST_CARD_KEY, card)
+        if (card) {
+          Lampa.Storage.set(LAST_CARD_KEY, card)
+        }
 
         const hash = data.timeline && data.timeline.hash
         const resume =
@@ -105,11 +107,15 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
     if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener) {
       Lampa.PlayerVideo.listener.follow('timeupdate', function (e: Record<string, any>) {
         try {
-          if (!e || !e.duration || e.current == null) return
+          if (!e || !e.duration || e.current == null) {
+            return
+          }
           lastDuration = e.duration
           const percent = (e.current / e.duration) * 100
           lastPercent = percent
-          if (activeContext) session.progress(buildItem(percent))
+          if (activeContext) {
+            session.progress(buildItem(percent))
+          }
         } catch (err) {
           log('timeupdate error', err)
         }
@@ -119,7 +125,9 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
       Lampa.PlayerVideo.listener.follow('tracks', function (e: Record<string, any>) {
         try {
           const tracks = e && e.tracks
-          if (!tracks || !tracks.length) return
+          if (!tracks || !tracks.length) {
+            return
+          }
           for (let i = 0; i < tracks.length; i++) {
             if (tracks[i] && (tracks[i].selected || tracks[i].enabled)) {
               lastAudioLang = normalizeLang(tracks[i].language || tracks[i].lang)
@@ -142,10 +150,16 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
         try {
           const road = e && e.data && e.data.road
           const hash = e && e.data && e.data.hash
-          if (!road || typeof road.percent !== 'number') return
+          if (!road || typeof road.percent !== 'number') {
+            return
+          }
           // no session, or a tick for a different file
-          if (!activeContext) return
-          if (activeContext.hash && hash && activeContext.hash !== hash) return
+          if (!activeContext) {
+            return
+          }
+          if (activeContext.hash && hash && activeContext.hash !== hash) {
+            return
+          }
           lastPercent = road.percent
           session.progress(buildItem(road.percent))
         } catch (err) {

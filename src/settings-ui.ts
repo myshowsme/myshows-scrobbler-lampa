@@ -34,7 +34,9 @@ export function createSettingsUi(deps: SettingsUiDeps) {
   let statusRow: any = null
 
   function refreshStatusRow(code: ConnectionStatus | string): void {
-    if (!statusRow) return
+    if (!statusRow) {
+      return
+    }
     try {
       statusRow.find('.settings-param__descr').html(statusLabel(code))
     } catch {
@@ -46,14 +48,20 @@ export function createSettingsUi(deps: SettingsUiDeps) {
   // notify=true also shows a toast (used from the token field onChange).
   function checkToken(notify: boolean): void {
     if (!settings.token) {
-      if (notify) Lampa.Noty.show('MyShows: токен не задан')
+      if (notify) {
+        Lampa.Noty.show('MyShows: токен не задан')
+      }
       return
     }
-    if (notify) Lampa.Noty.show('MyShows: проверяем…')
+    if (notify) {
+      Lampa.Noty.show('MyShows: проверяем…')
+    }
     client.check().then(
       function () {
         settings.setStatus('ok')
-        if (notify) Lampa.Noty.show('MyShows: токен работает ✓')
+        if (notify) {
+          Lampa.Noty.show('MyShows: токен работает ✓')
+        }
       },
       function (err: any) {
         const bad = err && (err.status === 401 || err.status === 403)

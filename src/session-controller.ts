@@ -54,10 +54,16 @@ export function createSessionController(deps: SessionDeps): SessionController {
   // Show a Noty at most once per session per key, so a flaky network can't spam
   // the screen on every heartbeat. Suppressed when on-screen errors are off.
   function notifyOnce(key: string, message: string): void {
-    if (!current) return
-    if (!settings.notify) return
+    if (!current) {
+      return
+    }
+    if (!settings.notify) {
+      return
+    }
     current.notified = current.notified || {}
-    if (current.notified[key]) return
+    if (current.notified[key]) {
+      return
+    }
     current.notified[key] = true
     try {
       showNoty(message)
@@ -67,7 +73,9 @@ export function createSessionController(deps: SessionDeps): SessionController {
   }
 
   function onError(err: unknown): void {
-    if (!current) return
+    if (!current) {
+      return
+    }
     // 401/403 means the token is invalid: stop scrobbling this session.
     if (isAuthError(err)) {
       log('auth error, disabling session', err)
@@ -90,23 +98,31 @@ export function createSessionController(deps: SessionDeps): SessionController {
   }
 
   function onSuccess(): void {
-    if (!current) return
+    if (!current) {
+      return
+    }
     current.errors = 0
     current.intervalMs = HEARTBEAT_MS
     // Clear the degraded warning latch so a fresh wave of failures warns again
     // (the auth latch stays; that session is already stopped).
-    if (current.notified) current.notified.degraded = false
+    if (current.notified) {
+      current.notified.degraded = false
+    }
     settings.setStatus('ok')
   }
 
   // /stop is terminal: best-effort with one immediate re-send on failure.
   function stop(item: ScrobbleItem): void {
-    if (!current || current.stopped) return
+    if (!current || current.stopped) {
+      return
+    }
     current.stopped = true
     log('stop', current.signature, clampPercent(item.percent) + '%')
     const payload = buildPayload(item)
     client.stop(payload).then(onSuccess, function (err: unknown) {
-      if (isAuthError(err)) return onError(err)
+      if (isAuthError(err)) {
+        return onError(err)
+      }
       // one immediate retry, then give up
       client.stop(payload).then(onSuccess, onError)
     })
@@ -115,10 +131,16 @@ export function createSessionController(deps: SessionDeps): SessionController {
   const controller: SessionController = {
     // Called by the player adapter when playback begins.
     play(item) {
-      if (!active()) return
+      if (!active()) {
+        return
+      }
       const sig = signatureOf(item)
-      if (current && current.signature === sig) return // dedup
-      if (current && !current.stopped) controller.finish(current.item) // close previous
+      if (current && current.signature === sig) {
+        return
+      } // dedup
+      if (current && !current.stopped) {
+        controller.finish(current.item)
+      } // close previous
 
       current = {
         signature: sig,
@@ -135,7 +157,9 @@ export function createSessionController(deps: SessionDeps): SessionController {
 
     // Called repeatedly with the latest percent (timeline ticks / polling).
     progress(item) {
-      if (!active() || !current || current.stopped) return
+      if (!active() || !current || current.stopped) {
+        return
+      }
       current.item = item // keep latest percent for finish()
 
       const nowMs = now()

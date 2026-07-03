@@ -12,9 +12,15 @@ export function isEpisode(item: ScrobbleItem): boolean {
 
 export function commonIds(card: Card): Ids {
   const ids: Ids = {}
-  if (card.tmdb != null) ids.tmdb = String(card.tmdb)
-  if (card.imdb) ids.imdb = String(card.imdb)
-  if (card.tvdb != null) ids.tvdb = String(card.tvdb)
+  if (card.tmdb != null) {
+    ids.tmdb = String(card.tmdb)
+  }
+  if (card.imdb) {
+    ids.imdb = String(card.imdb)
+  }
+  if (card.tvdb != null) {
+    ids.tvdb = String(card.tvdb)
+  }
   if (card.kinopoisk != null && !isNaN(Number(card.kinopoisk))) {
     ids.kinopoisk = Number(card.kinopoisk)
   }
@@ -23,8 +29,12 @@ export function commonIds(card: Card): Ids {
 
 export function buildMetadata(item: ScrobbleItem): Metadata | undefined {
   const m: Metadata = {}
-  if (item.resolution) m.resolution = item.resolution
-  if (item.audioLanguage) m.audio_language = item.audioLanguage
+  if (item.resolution) {
+    m.resolution = item.resolution
+  }
+  if (item.audioLanguage) {
+    m.audio_language = item.audioLanguage
+  }
   return Object.keys(m).length ? m : undefined
 }
 

@@ -7,7 +7,9 @@ import type { ScrobbleClient, ScrobblePayload, SettingsReader } from './types'
 export function createScrobbleClient(settings: SettingsReader): ScrobbleClient {
   function request(method: string, path: string, body?: ScrobblePayload): Promise<unknown> {
     const token = settings.token
-    if (!token) return Promise.reject({ status: 0, message: 'no token' })
+    if (!token) {
+      return Promise.reject({ status: 0, message: 'no token' })
+    }
 
     const headers: Record<string, string> = { Authorization: 'Bearer ' + token }
     const opts: RequestInit = { method, headers }

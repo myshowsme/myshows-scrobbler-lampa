@@ -43,7 +43,9 @@ function main(): void {
 
   function onProfileChanged(): void {
     const pid = profileId()
-    if (pid === lastSyncedProfile) return
+    if (pid === lastSyncedProfile) {
+      return
+    }
     log('profile switch, id', pid || '(none)')
     lastSyncedProfile = pid
     // The previous profile's session must not be closed with the new token.
@@ -83,8 +85,12 @@ function main(): void {
     // mirror settings edits to the active profile's keys.
     try {
       Lampa.Storage.listener.follow('change', function (e) {
-        if (!e || !e.name) return
-        if (e.name === STORAGE.status) return ui.refreshStatusRow(e.value)
+        if (!e || !e.name) {
+          return
+        }
+        if (e.name === STORAGE.status) {
+          return ui.refreshStatusRow(e.value)
+        }
         mirrorToProfile(e.name, e.value)
       })
     } catch {
@@ -101,7 +107,9 @@ function main(): void {
         Lampa.Account.listener.follow('profile_select', onProfileChanged)
       }
       Lampa.Listener.follow('state:changed', function (e) {
-        if (e && e.target === 'favorite' && e.reason === 'profile') onProfileChanged()
+        if (e && e.target === 'favorite' && e.reason === 'profile') {
+          onProfileChanged()
+        }
       })
     } catch {
       /* noop */
@@ -115,10 +123,13 @@ function main(): void {
 
   // Run once the app core is ready (the readiness pattern every plugin uses).
   function boot(): void {
-    if (window.appready) start()
-    else {
+    if (window.appready) {
+      start()
+    } else {
       Lampa.Listener.follow('app', function (e) {
-        if (e.type === 'ready') start()
+        if (e.type === 'ready') {
+          start()
+        }
       })
     }
   }
@@ -127,7 +138,9 @@ function main(): void {
     boot()
   } else {
     document.addEventListener('DOMContentLoaded', function () {
-      if (window.Lampa) boot()
+      if (window.Lampa) {
+        boot()
+      }
     })
   }
 }

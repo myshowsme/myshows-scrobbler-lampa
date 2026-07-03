@@ -15,7 +15,9 @@ let profileSyncing = false // guard: our own sync writes must not re-mirror
 export function profileId(): string {
   try {
     const acc = Lampa.Account && Lampa.Account.Permit && Lampa.Account.Permit.account
-    if (acc && acc.profile && acc.profile.id) return String(acc.profile.id)
+    if (acc && acc.profile && acc.profile.id) {
+      return String(acc.profile.id)
+    }
   } catch {
     /* noop */
   }
@@ -36,12 +38,20 @@ function profileKey(base: string): string {
 // nothing leaks between them.
 export function adoptBaseSettings(): void {
   const pid = profileId()
-  if (!pid) return
-  if (window.localStorage.getItem(profileKey(STORAGE.token)) !== null) return
-  if (window.localStorage.getItem(STORAGE.token) === null) return
+  if (!pid) {
+    return
+  }
+  if (window.localStorage.getItem(profileKey(STORAGE.token)) !== null) {
+    return
+  }
+  if (window.localStorage.getItem(STORAGE.token) === null) {
+    return
+  }
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i)
-    if (key && key.indexOf(STORAGE.token + '_profile_') === 0) return
+    if (key && key.indexOf(STORAGE.token + '_profile_') === 0) {
+      return
+    }
   }
   log('adopting pre-profile settings for profile', pid)
   PROFILE_SCOPED.forEach(function (k) {
@@ -71,11 +81,15 @@ export function syncProfileToBase(): void {
 
 // A base key edited in the settings UI -> copy to the profile key.
 export function mirrorToProfile(name: string, value: unknown): void {
-  if (profileSyncing) return
+  if (profileSyncing) {
+    return
+  }
   for (const entry of PROFILE_SCOPED) {
     if (entry.name === name) {
       const key = profileKey(name)
-      if (key !== name) Lampa.Storage.set(key, storableValue(value))
+      if (key !== name) {
+        Lampa.Storage.set(key, storableValue(value))
+      }
       return
     }
   }
