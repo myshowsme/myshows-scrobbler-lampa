@@ -24,7 +24,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
-    "format": "oxfmt src",
+    "format": "oxfmt src index.html",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
