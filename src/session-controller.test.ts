@@ -217,6 +217,63 @@ describe('finish / abort', () => {
   })
 })
 
+describe('markEpisode', () => {
+  it('sends a /start -> /stop pair and then calls done', async () => {
+    const { session, client } = setup()
+    const done = vi.fn()
+    session.markEpisode(item({ percent: 100 }), done)
+    await flush()
+    expect(client.calls.start).toHaveLength(1)
+    expect(client.calls.stop).toHaveLength(1)
+    expect(client.calls.stop[0]).toMatchObject({ progress: 100 })
+    expect(done).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries /stop once on a transient failure', async () => {
+    let failures = 1
+    const client = makeClient({
+      stop: () =>
+        failures-- > 0 ? Promise.reject({ status: 500, message: 'boom' }) : Promise.resolve({}),
+    })
+    const { session } = setup({ client })
+    const done = vi.fn()
+    session.markEpisode(item({ percent: 100 }), done)
+    await flush()
+    expect(client.calls.stop).toHaveLength(2)
+    expect(done).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives up without /stop when /start fails, still calling done', async () => {
+    const client = makeClient({ start: () => Promise.reject({ status: 500, message: 'boom' }) })
+    const { session } = setup({ client })
+    const done = vi.fn()
+    session.markEpisode(item({ percent: 100 }), done)
+    await flush()
+    expect(client.calls.stop).toHaveLength(0)
+    expect(done).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op (but settles) when scrobbling is off', async () => {
+    const { session, client } = setup({ settings: makeSettings({ enabled: false }) })
+    const done = vi.fn()
+    session.markEpisode(item({ percent: 100 }), done)
+    await flush()
+    expect(client.calls.start).toHaveLength(0)
+    expect(done).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not disturb an open session', async () => {
+    const { session, client } = setup()
+    session.play(item({ episode: 1 }))
+    await flush()
+    session.markEpisode(item({ episode: 2, percent: 100 }))
+    await flush()
+    // the open session still finishes on its own terms
+    session.finish(item({ episode: 1, percent: 90 }))
+    expect(client.calls.stop).toHaveLength(2) // one for the mark, one for the finish
+  })
+})
+
 beforeEach(() => {
   vi.restoreAllMocks()
 })

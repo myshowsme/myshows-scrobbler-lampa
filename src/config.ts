@@ -1,6 +1,6 @@
 // Plugin-wide constants. Kept dependency-free so any module can import it.
 
-export const VERSION = '0.0.3'
+export const VERSION = '0.0.4'
 export const PLUGIN_ID = 'myshows_scrobbler'
 export const SOURCE_APP = 'lampa'
 

@@ -9,13 +9,29 @@
 
 import { LAST_CARD_KEY } from './config'
 import { log } from './log'
-import { normalizeCard, normalizeLang, readEpisode } from './player-parse'
+import {
+  normalizeCard,
+  normalizeLang,
+  normalizePlaylist,
+  playlistIndexOf,
+  readEpisode,
+} from './player-parse'
+import type { PlaylistEntry } from './player-parse'
+import { settings } from './settings'
 import type { ScrobbleItem, SessionController } from './types'
-import { mapResolution } from './utils'
+import { clampPercent, mapResolution } from './utils'
 
 interface PlaybackContext {
   hash: unknown
   raw: Record<string, any>
+  /** playback happens in an external player ('external' event) */
+  external: boolean
+  /** normalized playlist handed to the external player (empty otherwise) */
+  playlist: PlaylistEntry[]
+  /** index of the launched episode in `playlist`, -1 when unknown */
+  launchIndex: number
+  /** playlist indexes already marked this session (dedup) */
+  marked: Record<number, boolean>
 }
 
 export function createPlayerAdapter(session: SessionController): { init(): void } {
@@ -69,10 +85,82 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
     }
   }
 
+  // Return from an external player. Lampa reports a timecode per finished
+  // episode (earlier playlist items are set to 100%), but some player
+  // integrations deliver only the last played one. Cover both: mark the range
+  // from the launched episode FORWARD to the reported one — everything before
+  // it was passed inside the player, the reported one counts by its actual
+  // percent. On a backward jump (or unknown launch position) nothing in
+  // between can be assumed watched, so only the reported episode counts.
+  // The launched episode already owns the open session, so it is driven
+  // through progress() (heartbeats keep flowing, /stop closes the /start)
+  // instead of a second /start via markEpisode. Sequential, deduped per
+  // session. Returns true when the tick belonged to the playlist.
+  function onExternalTimeline(hash: string, percent: number): boolean {
+    if (!activeContext) {
+      return false
+    }
+    const ctx = activeContext
+    let idx = -1
+    for (let i = 0; i < ctx.playlist.length; i++) {
+      if (ctx.playlist[i]!.hash === hash) {
+        idx = i
+        break
+      }
+    }
+    if (idx < 0) {
+      return false // not a playlist hash: the legacy single-file filter decides
+    }
+
+    let from = ctx.launchIndex
+    if (from < 0 || from > idx) {
+      from = idx
+    }
+
+    const queue: { entry: PlaylistEntry; percent: number }[] = []
+    for (let j = from; j <= idx; j++) {
+      const pct = j === idx ? percent : 100
+      if (ctx.marked[j]) {
+        continue
+      }
+      if (j === ctx.launchIndex) {
+        lastPercent = pct
+        session.progress(buildItem(pct))
+        if (clampPercent(pct) >= settings.threshold) {
+          ctx.marked[j] = true
+        }
+        continue
+      }
+      if (clampPercent(pct) < settings.threshold) {
+        continue
+      }
+      ctx.marked[j] = true
+      queue.push({ entry: ctx.playlist[j]!, percent: pct })
+    }
+    if (!queue.length) {
+      return true
+    }
+
+    log('external return: marking', queue.length, 'episode(s)')
+    const step = (): void => {
+      const next = queue.shift()
+      if (!next) {
+        return
+      }
+      const item = buildItem(next.percent)
+      item.season = next.entry.season
+      item.episode = next.entry.episode
+      item.episodeTitle = next.entry.title
+      session.markEpisode(item, step)
+    }
+    step()
+    return true
+  }
+
   function init(): void {
     // Open a session. 'start' fires for the built-in player, 'external' for
     // external ones (Android/webOS/etc); only one fires per playback.
-    function onPlaybackBegin(data: Record<string, any>): void {
+    function onPlaybackBegin(data: Record<string, any>, external: boolean): void {
       try {
         data = data || {}
         const card =
@@ -88,10 +176,18 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
         const resume =
           data.timeline && typeof data.timeline.percent === 'number' ? data.timeline.percent : 0
 
-        activeContext = { hash, raw: data }
+        activeContext = { hash, raw: data, external, playlist: [], launchIndex: -1, marked: {} }
         lastPercent = resume
 
         const item = buildItem(resume)
+
+        if (external) {
+          activeContext.playlist = normalizePlaylist(data.playlist, item.card || {}, (source) =>
+            Lampa.Utils.hash(source),
+          )
+          activeContext.launchIndex = playlistIndexOf(activeContext.playlist, hash, data)
+        }
+
         log('player begin', item)
         session.play(item)
       } catch (e) {
@@ -99,8 +195,12 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
       }
     }
 
-    Lampa.Player.listener.follow('start', onPlaybackBegin)
-    Lampa.Player.listener.follow('external', onPlaybackBegin)
+    Lampa.Player.listener.follow('start', function (data: Record<string, any>) {
+      onPlaybackBegin(data, false)
+    })
+    Lampa.Player.listener.follow('external', function (data: Record<string, any>) {
+      onPlaybackBegin(data, true)
+    })
 
     // Extra heartbeats for the built-in player: 'timeupdate' fires every tick
     // with { duration, current }; the /pause throttle caps the rate.
@@ -156,6 +256,14 @@ export function createPlayerAdapter(session: SessionController): { init(): void 
           // no session, or a tick for a different file
           if (!activeContext) {
             return
+          }
+          // External session with a playlist: episodes are matched to the
+          // playlist by hash. A hash the playlist doesn't know falls through
+          // to the legacy single-file filter below.
+          if (activeContext.external && activeContext.playlist.length) {
+            if (onExternalTimeline(String(hash), road.percent)) {
+              return
+            }
           }
           if (activeContext.hash && hash && activeContext.hash !== hash) {
             return

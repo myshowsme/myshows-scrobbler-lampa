@@ -141,6 +141,81 @@ export function parseFromTitle(title: string | undefined): {
   return out
 }
 
+// ── external-player playlists ────────────────────────────────────────────────
+
+export interface PlaylistEntry {
+  season: number
+  episode: number
+  title?: string
+  hash: string
+}
+
+// Lampa's episode resume-hash formula (timeline.js / episode.js):
+// [season, season > 10 ? ':' : '', episode, original].join('')
+export function episodeHashSource(season: number, episode: number, original: string): string {
+  return [season, season > 10 ? ':' : '', episode, original].join('')
+}
+
+// Normalize the playlist passed to an external player into PlaylistEntry[].
+// Lampa attaches a timeline (with the resume hash) to every element; fall back
+// to computing the hash the way Lampa does for episodes. `hashFn` is injected
+// (Lampa.Utils.hash in production) to keep this module Lampa-free.
+export function normalizePlaylist(
+  list: Raw[] | null | undefined,
+  card: Card,
+  hashFn: (source: string) => string | number,
+): PlaylistEntry[] {
+  const out: PlaylistEntry[] = []
+  if (!list || !list.length) {
+    return out
+  }
+  // Card.original_title already normalizes original_name || original_title;
+  // Lampa hashes '' when both are missing, so no further fallback here.
+  const original = card.original_title || ''
+  for (const el of list) {
+    const ep = readEpisode(el || {})
+    if (ep.episode == null) {
+      continue
+    }
+    const season = ep.season != null ? ep.season : 1
+    let hash: unknown = el && el.timeline && el.timeline.hash
+    if (hash == null) {
+      hash = hashFn(episodeHashSource(season, ep.episode, original))
+    }
+    out.push({ season, episode: ep.episode, title: ep.episodeTitle, hash: String(hash) })
+  }
+  return out
+}
+
+// Index of the launched item in the normalized playlist: by resume hash first,
+// then by parsed season/episode. -1 when unknown — the caller must NOT assume
+// a range from an unknown launch position (it would mass-mark episodes).
+export function playlistIndexOf(
+  playlist: PlaylistEntry[],
+  hash: unknown,
+  data: Raw | null | undefined,
+): number {
+  if (hash != null) {
+    for (let i = 0; i < playlist.length; i++) {
+      if (playlist[i]!.hash === String(hash)) {
+        return i
+      }
+    }
+  }
+  const ep = readEpisode(data)
+  if (ep.episode != null) {
+    for (let i = 0; i < playlist.length; i++) {
+      if (
+        playlist[i]!.episode === ep.episode &&
+        (ep.season == null || playlist[i]!.season === ep.season)
+      ) {
+        return i
+      }
+    }
+  }
+  return -1
+}
+
 // Season/episode from the play data (empty for external players).
 export function readEpisode(data: Raw | null | undefined): EpisodeInfo {
   data = data || {}

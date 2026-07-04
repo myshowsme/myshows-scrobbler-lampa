@@ -10,6 +10,7 @@ import type {
   ScrobbleClient,
   ScrobbleError,
   ScrobbleItem,
+  ScrobblePayload,
   SessionController,
   SettingsReader,
 } from './types'
@@ -112,20 +113,46 @@ export function createSessionController(deps: SessionDeps): SessionController {
   }
 
   // /stop is terminal: best-effort with one immediate re-send on failure.
+  // `done` fires when the exchange settles either way (used by markEpisode
+  // to sequence marks); auth errors skip the retry.
+  function sendStop(payload: ScrobblePayload, done?: () => void): void {
+    const settle = (): void => {
+      if (done) {
+        done()
+      }
+    }
+    client.stop(payload).then(
+      () => {
+        onSuccess()
+        settle()
+      },
+      (err: unknown) => {
+        if (isAuthError(err)) {
+          onError(err)
+          return settle()
+        }
+        // one immediate retry, then give up
+        client.stop(payload).then(
+          () => {
+            onSuccess()
+            settle()
+          },
+          (err2: unknown) => {
+            onError(err2)
+            settle()
+          },
+        )
+      },
+    )
+  }
+
   function stop(item: ScrobbleItem): void {
     if (!current || current.stopped) {
       return
     }
     current.stopped = true
     log('stop', current.signature, clampPercent(item.percent) + '%')
-    const payload = buildPayload(item)
-    client.stop(payload).then(onSuccess, function (err: unknown) {
-      if (isAuthError(err)) {
-        return onError(err)
-      }
-      // one immediate retry, then give up
-      client.stop(payload).then(onSuccess, onError)
-    })
+    sendStop(buildPayload(item))
   }
 
   const controller: SessionController = {
@@ -195,6 +222,29 @@ export function createSessionController(deps: SessionDeps): SessionController {
     // profile's token must not close the previous profile's session).
     abort() {
       current = null
+    },
+
+    // One-shot /start -> /stop pair outside the regular session (an episode
+    // finished inside an external player). The caller checks the threshold;
+    // the /stop retry mirrors the in-session stop().
+    markEpisode(item, done) {
+      const settle = (): void => {
+        if (done) {
+          done()
+        }
+      }
+      if (!active()) {
+        return settle()
+      }
+      const payload = buildPayload(item)
+      log('mark', signatureOf(item), clampPercent(item.percent) + '%')
+      client.start(payload).then(
+        () => sendStop(payload, settle),
+        (err: unknown) => {
+          onError(err)
+          settle()
+        },
+      )
     },
   }
 

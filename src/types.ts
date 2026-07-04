@@ -102,4 +102,10 @@ export interface SessionController {
   progress(item: ScrobbleItem): void
   finish(item: ScrobbleItem): void
   abort(): void
+  /**
+   * One-shot mark for an episode finished inside an external player: a full
+   * /start -> /stop pair outside the regular session. `done` fires when the
+   * exchange settles (success or give-up) so marks can run sequentially.
+   */
+  markEpisode(item: ScrobbleItem, done?: () => void): void
 }

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  episodeHashSource,
   extractContentRating,
   normalizeCard,
   normalizeLang,
+  normalizePlaylist,
   parseFromTitle,
+  playlistIndexOf,
   readEpisode,
 } from './player-parse'
 
@@ -116,5 +119,53 @@ describe('extractContentRating', () => {
 
   it('returns undefined when nothing is present', () => {
     expect(extractContentRating({})).toBeUndefined()
+  })
+})
+
+describe('normalizePlaylist', () => {
+  const card = { original_title: 'Game of Thrones' }
+  const hashFn = (s: string) => 'h:' + s
+
+  it('takes the hash from the element timeline when present', () => {
+    const out = normalizePlaylist(
+      [{ title: 'S1 / Серия 1', timeline: { hash: 12345 } }],
+      card,
+      hashFn,
+    )
+    expect(out).toEqual([{ season: 1, episode: 1, title: 'S1 / Серия 1', hash: '12345' }])
+  })
+
+  it("falls back to Lampa's episode hash formula", () => {
+    const out = normalizePlaylist([{ title: 'S1 / Серия 2' }], card, hashFn)
+    expect(out[0]!.hash).toBe('h:' + episodeHashSource(1, 2, 'Game of Thrones'))
+  })
+
+  it('inserts the >10 season separator exactly like Lampa', () => {
+    expect(episodeHashSource(11, 3, 'X')).toBe('11:3X')
+    expect(episodeHashSource(2, 3, 'X')).toBe('23X')
+  })
+
+  it('skips elements without a parsable episode and handles empty input', () => {
+    expect(normalizePlaylist([{ title: 'Просто фильм' }], card, hashFn)).toEqual([])
+    expect(normalizePlaylist(null, card, hashFn)).toEqual([])
+  })
+})
+
+describe('playlistIndexOf', () => {
+  const pl = [
+    { season: 1, episode: 1, hash: 'a' },
+    { season: 1, episode: 2, hash: 'b' },
+  ]
+
+  it('matches by hash first', () => {
+    expect(playlistIndexOf(pl, 'b', null)).toBe(1)
+  })
+
+  it('falls back to season/episode from the play data', () => {
+    expect(playlistIndexOf(pl, 'nope', { season_number: 1, episode_number: 2 })).toBe(1)
+  })
+
+  it('returns -1 when the launch position is unknown (never assume index 0)', () => {
+    expect(playlistIndexOf(pl, 'nope', { title: 'Просто фильм' })).toBe(-1)
   })
 })

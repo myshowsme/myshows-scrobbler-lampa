@@ -43,6 +43,7 @@ interface LampaGlobal {
     video(): any
   }
   Timeline?: { listener?: LampaListener }
+  Utils: { hash(source: string): string | number }
   Activity: { active?: () => any }
   Listener: LampaListener
   Manifest: { plugins?: unknown; app_digital?: number }
