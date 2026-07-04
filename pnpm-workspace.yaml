@@ -1,0 +1,7 @@
+# pnpm 11 approves dependency build/postinstall scripts via `allowBuilds`
+# (a map of package -> true/false). This replaced onlyBuiltDependencies in v11.
+#   esbuild          — links its native binary (needed by Vite/Vitest)
+#   simple-git-hooks — its postinstall installs the git pre-commit hook
+allowBuilds:
+  esbuild: true
+  simple-git-hooks: true

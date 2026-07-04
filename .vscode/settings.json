@@ -1,0 +1,16 @@
+{
+  // Format with oxfmt (via the Oxc extension, oxc.oxc-vscode) on save, for the
+  // languages we own. myshows.js is skipped via .oxfmtrc ignorePatterns.
+  // Oxfmt support is on by default now — no oxc.fmt.experimental flag needed.
+  "editor.formatOnSave": true,
+  // Apply oxlint autofixes on save (e.g. `curly` adds braces), then oxfmt runs.
+  "editor.codeActionsOnSave": { "source.fixAll.oxc": "explicit" },
+  // Point the extension at our oxfmt config explicitly — otherwise it formats
+  // with defaults (double quotes + semicolons) instead of .oxfmtrc.json.
+  "oxc.fmt.configPath": ".oxfmtrc.json",
+  "[javascript]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[typescript]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[json]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[jsonc]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[html]": { "editor.defaultFormatter": "oxc.oxc-vscode" }
+}
